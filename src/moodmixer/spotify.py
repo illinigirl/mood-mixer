@@ -251,3 +251,21 @@ def create_playlist(name: str, uris: list[str], description: str = "", public: b
         "playlist_url": playlist.get("external_urls", {}).get("spotify", ""),
         "track_count": len(uris),
     }
+
+
+def replace_playlist_tracks(playlist_id: str, uris: list[str]) -> dict:
+    """Replace ALL tracks in an existing playlist (rebuild in place — keeps its
+    name/URL, swaps the contents). PUT replaces with the first 100, then POST
+    appends the rest in 100-track chunks."""
+    token = get_access_token()
+    if not token:
+        raise RuntimeError("Not authorized — run `mood-mixer authorize` first.")
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    put = requests.put(f"{API}/playlists/{playlist_id}/tracks", headers=headers,
+                       json={"uris": uris[:100]}, timeout=15)
+    put.raise_for_status()
+    for start in range(100, len(uris), 100):
+        add = requests.post(f"{API}/playlists/{playlist_id}/tracks", headers=headers,
+                            json={"uris": uris[start:start + 100]}, timeout=15)
+        add.raise_for_status()
+    return {"playlist_id": playlist_id, "track_count": len(uris)}

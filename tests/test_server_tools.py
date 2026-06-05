@@ -72,6 +72,21 @@ def test_create_playlist_unauthorized_errors(srv):
     assert "error" in res and "authorize" in res["error"].lower()
 
 
+def test_rebuild_replaces_in_place(srv, monkeypatch):
+    seen = {}
+
+    def fake_replace(playlist_id, uris):
+        seen["id"] = playlist_id
+        seen["uris"] = uris
+        return {"playlist_id": playlist_id, "track_count": len(uris)}
+
+    monkeypatch.setattr("moodmixer.spotify.replace_playlist_tracks", fake_replace)
+    res = srv.create_playlist("workout", limit=3, replace_playlist_id="plX")
+    assert res["updated"] is True
+    assert res["playlist_url"].endswith("plX")
+    assert seen["id"] == "plX" and len(seen["uris"]) == 3
+
+
 def test_refresh_library_caches_then_status_flips(srv, monkeypatch):
     fake = [{"id": "abc1234567890123456789", "name": "X", "artist": "Y", "genres": ["pop"]}]
     monkeypatch.setattr("moodmixer.spotify.fetch_liked_tracks", lambda: fake)

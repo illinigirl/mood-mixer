@@ -122,11 +122,14 @@ def preview_mix(preset: str, limit: int = 30, exclude_artists: list[str] | None 
 def create_playlist(preset: str, name: str | None = None, limit: int = 30,
                     exclude_artists: list[str] | None = None, exclude_genres: list[str] | None = None,
                     exclude_track_ids: list[str] | None = None, allow_artists: list[str] | None = None,
-                    allow_genres: list[str] | None = None, shuffle_seed: int | None = None) -> dict:
+                    allow_genres: list[str] | None = None, shuffle_seed: int | None = None,
+                    replace_playlist_id: str | None = None) -> dict:
     """Build the mood mix AND save it as a real (private) Spotify playlist — the
     payoff (the side effect plain Claude can't do). Honors saved exclusions;
-    `exclude_*` adds more, `allow_*` overrides a saved rule for this request. Needs
-    Spotify authorization (run `mood-mixer authorize` once). Returns the URL."""
+    `exclude_*` adds more, `allow_*` overrides a saved rule for this request. Pass
+    `replace_playlist_id` to REBUILD an existing playlist in place (keeps its name
+    + URL, swaps the tracks) instead of creating a new one. Needs Spotify
+    authorization (run `mood-mixer authorize` once). Returns the URL."""
     if preset not in moods.MOOD_PRESETS:
         return {"error": f"unknown mood {preset!r}", "known": list(moods.MOOD_PRESETS)}
     ids, artists, genres = _effective_excludes(exclude_track_ids, exclude_artists,
@@ -137,9 +140,14 @@ def create_playlist(preset: str, name: str | None = None, limit: int = 30,
                          "or run refresh_library / enrich_features to improve coverage"}
     label = moods.MOOD_PRESETS[preset]["label"]
     playlist_name = name or f"{label} (mood-mixer)"
+    uris = [t.uri for t in mix]
     try:
+        if replace_playlist_id:
+            result = spotify.replace_playlist_tracks(replace_playlist_id, uris)
+            url = f"https://open.spotify.com/playlist/{replace_playlist_id}"
+            return {"updated": True, "mood": preset, "playlist_url": url, **result}
         result = spotify.create_playlist(
-            playlist_name, [t.uri for t in mix],
+            playlist_name, uris,
             description=f"Built by mood-mixer from your liked library — mood: {label}.",
         )
     except (RuntimeError, ValueError) as e:
