@@ -55,19 +55,28 @@ def cmd_enrich(args):
     print(f"Enriched {hit}/{len(todo)}.")
 
 
+def _saved_excludes():
+    p = store.load_preferences()
+    return (set(p["excluded_track_ids"]),
+            {a.lower() for a in p["excluded_artists"]},
+            {g.lower() for g in p["excluded_genres"]})
+
+
 def cmd_preview(args):
-    lib = store.load_library()
-    mix = moods.build_mix(lib, args.mood, limit=args.limit, shuffle_seed=args.seed)
+    ids, artists, genres = _saved_excludes()
+    mix = moods.build_mix(store.load_library(), args.mood, limit=args.limit, shuffle_seed=args.seed,
+                          exclude_track_ids=ids, exclude_artists=artists, exclude_genres=genres)
     print(f"{len(mix)} tracks for '{args.mood}':\n")
     for t in mix:
         print(f"  {t.artist:<24} {t.name:<28} [{t.features_source or 'genre'}]")
 
 
 def cmd_create(args):
-    lib = store.load_library()
-    mix = moods.build_mix(lib, args.mood, limit=args.limit, shuffle_seed=args.seed)
+    ids, artists, genres = _saved_excludes()
+    mix = moods.build_mix(store.load_library(), args.mood, limit=args.limit, shuffle_seed=args.seed,
+                          exclude_track_ids=ids, exclude_artists=artists, exclude_genres=genres)
     if not mix:
-        print(f"No tracks match '{args.mood}'.")
+        print(f"No tracks available for '{args.mood}' (after exclusions).")
         return
     label = moods.MOOD_PRESETS[args.mood]["label"]
     result = spotify.create_playlist(
@@ -75,6 +84,22 @@ def cmd_create(args):
         description=f"Built by mood-mixer — mood: {label}.",
     )
     print(f"Created '{args.name or label}' ({result['track_count']} tracks): {result['playlist_url']}")
+
+
+def cmd_exclude(args):
+    prefs = store.add_exclusion(artists=args.artist, genres=args.genre,
+                                track_ids=args.track, note=args.note)
+    print(f"Saved. Excluding {len(prefs['excluded_artists'])} artists, "
+          f"{len(prefs['excluded_genres'])} genres, {len(prefs['excluded_track_ids'])} tracks.")
+
+
+def cmd_prefs(args):
+    p = store.load_preferences()
+    print("Excluded artists:", ", ".join(p["excluded_artists"]) or "(none)")
+    print("Excluded genres: ", ", ".join(p["excluded_genres"]) or "(none)")
+    print("Excluded tracks: ", len(p["excluded_track_ids"]))
+    for n in p["notes"]:
+        print("  note:", n)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -102,6 +127,15 @@ def build_parser() -> argparse.ArgumentParser:
     pc.add_argument("--limit", type=int, default=30)
     pc.add_argument("--seed", type=int, default=None)
     pc.set_defaults(func=cmd_create)
+
+    px = sub.add_parser("exclude", help="save a 'skip from now on' rule")
+    px.add_argument("--artist", action="append", help="repeatable")
+    px.add_argument("--genre", action="append", help="repeatable")
+    px.add_argument("--track", action="append", help="track id, repeatable")
+    px.add_argument("--note", default=None)
+    px.set_defaults(func=cmd_exclude)
+
+    sub.add_parser("prefs", help="show saved exclusions").set_defaults(func=cmd_prefs)
     return p
 
 

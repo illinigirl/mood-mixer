@@ -60,25 +60,58 @@ def get_library_status() -> dict:
     }
 
 
-def _mix(preset: str, limit: int, shuffle_seed: int | None):
+def _effective_excludes(exclude_track_ids, exclude_artists, exclude_genres,
+                        allow_artists, allow_genres):
+    """Merge saved preferences with this call's ad-hoc excludes, then drop any the
+    caller explicitly allows this time (the "...unless I ask" override)."""
+    prefs = store.load_preferences()
+    ids = set(prefs["excluded_track_ids"]) | set(exclude_track_ids or [])
+    artists = {a.lower() for a in prefs["excluded_artists"]} | {a.lower() for a in (exclude_artists or [])}
+    genres = {g.lower() for g in prefs["excluded_genres"]} | {g.lower() for g in (exclude_genres or [])}
+    artists -= {a.lower() for a in (allow_artists or [])}
+    genres -= {g.lower() for g in (allow_genres or [])}
+    return ids, artists, genres
+
+
+def _mix(preset, limit, shuffle_seed, ex_ids, ex_artists, ex_genres):
     lib = store.load_library()
-    matched = moods.build_mix(lib, preset, limit=len(lib) or 1, max_per_artist=10**6)
-    mix = moods.build_mix(lib, preset, limit=limit, shuffle_seed=shuffle_seed)
-    return mix, len(matched)
+    crit = moods.MOOD_PRESETS[preset]["criteria"]
+    strict = 0
+    for t in lib:
+        if t.id in ex_ids or t.artist.lower() in ex_artists:
+            continue
+        if ex_genres and any(g in ex_genres for g in t.genres):
+            continue
+        f = moods.resolve_features(t)
+        if f and moods.track_matches(f, crit):
+            strict += 1
+    mix = moods.build_mix(lib, preset, limit=limit, shuffle_seed=shuffle_seed,
+                          exclude_track_ids=ex_ids, exclude_artists=ex_artists, exclude_genres=ex_genres)
+    return mix, strict
 
 
 @mcp.tool()
-def preview_mix(preset: str, limit: int = 30, shuffle_seed: int | None = None) -> dict:
+def preview_mix(preset: str, limit: int = 30, exclude_artists: list[str] | None = None,
+                exclude_genres: list[str] | None = None, exclude_track_ids: list[str] | None = None,
+                allow_artists: list[str] | None = None, allow_genres: list[str] | None = None,
+                shuffle_seed: int | None = None) -> dict:
     """Show the tracks a mood would select from your library — WITHOUT creating a
-    playlist. The grounding step: see what you'd get, then call create_playlist.
-    `preset` is one of list_moods (chill, morning, focus, roadtrip, workout,
-    melancholy, party)."""
+    playlist (the grounding step). Tracks are ranked by FIT, so you always get a
+    full list (the closest N), not just exact matches; `strict_matches` reports how
+    many fully fit, `selected` how many were returned.
+
+    Honors your saved exclusions (add_exclusion). Use `exclude_artists/genres/
+    track_ids` to drop more just this time, or `allow_artists/genres` to override a
+    saved rule for this one request (e.g. lullabies are off by default — include
+    them now). `preset` is one of list_moods."""
     if preset not in moods.MOOD_PRESETS:
         return {"error": f"unknown mood {preset!r}", "known": list(moods.MOOD_PRESETS)}
-    mix, matched = _mix(preset, limit, shuffle_seed)
+    ids, artists, genres = _effective_excludes(exclude_track_ids, exclude_artists,
+                                               exclude_genres, allow_artists, allow_genres)
+    mix, strict = _mix(preset, limit, shuffle_seed, ids, artists, genres)
     return {
         "mood": preset,
-        "matched": matched,
+        "strict_matches": strict,
         "selected": len(mix),
         "tracks": [{"name": t.name, "artist": t.artist, "features_source": t.features_source}
                    for t in mix],
@@ -87,16 +120,21 @@ def preview_mix(preset: str, limit: int = 30, shuffle_seed: int | None = None) -
 
 @mcp.tool()
 def create_playlist(preset: str, name: str | None = None, limit: int = 30,
-                    shuffle_seed: int | None = None) -> dict:
+                    exclude_artists: list[str] | None = None, exclude_genres: list[str] | None = None,
+                    exclude_track_ids: list[str] | None = None, allow_artists: list[str] | None = None,
+                    allow_genres: list[str] | None = None, shuffle_seed: int | None = None) -> dict:
     """Build the mood mix AND save it as a real (private) Spotify playlist — the
-    payoff (the side effect plain Claude can't do). Needs Spotify authorization
-    (run `mood-mixer authorize` once). Returns the playlist URL."""
+    payoff (the side effect plain Claude can't do). Honors saved exclusions;
+    `exclude_*` adds more, `allow_*` overrides a saved rule for this request. Needs
+    Spotify authorization (run `mood-mixer authorize` once). Returns the URL."""
     if preset not in moods.MOOD_PRESETS:
         return {"error": f"unknown mood {preset!r}", "known": list(moods.MOOD_PRESETS)}
-    mix, _ = _mix(preset, limit, shuffle_seed)
+    ids, artists, genres = _effective_excludes(exclude_track_ids, exclude_artists,
+                                               exclude_genres, allow_artists, allow_genres)
+    mix, _ = _mix(preset, limit, shuffle_seed, ids, artists, genres)
     if not mix:
-        return {"error": f"no tracks in your library match '{preset}' — try refresh_library "
-                         "or enrich_features to improve coverage"}
+        return {"error": f"no tracks available for '{preset}' after exclusions — loosen filters "
+                         "or run refresh_library / enrich_features to improve coverage"}
     label = moods.MOOD_PRESETS[preset]["label"]
     playlist_name = name or f"{label} (mood-mixer)"
     try:
@@ -107,6 +145,37 @@ def create_playlist(preset: str, name: str | None = None, limit: int = 30,
     except (RuntimeError, ValueError) as e:
         return {"error": str(e)}
     return {"created": True, "mood": preset, "name": playlist_name, **result}
+
+
+@mcp.tool()
+def add_exclusion(track_ids: list[str] | None = None, artists: list[str] | None = None,
+                  genres: list[str] | None = None, note: str | None = None) -> dict:
+    """Save a standing 'skip from now on' rule — the cross-session memory that makes
+    mood-mixer personal. Exclude specific `track_ids` (e.g. the Mount Eerie songs
+    about death you named — you identify them, this remembers them), `artists`, or
+    `genres` (e.g. "lullaby"). `note` records the rule in plain English. Applied to
+    every preview/create automatically; override per-request via the allow_* params."""
+    prefs = store.add_exclusion(track_ids=track_ids, artists=artists, genres=genres, note=note)
+    return {"saved": True, "excluded_track_ids": len(prefs["excluded_track_ids"]),
+            "excluded_artists": prefs["excluded_artists"], "excluded_genres": prefs["excluded_genres"],
+            "notes": prefs["notes"]}
+
+
+@mcp.tool()
+def list_preferences() -> dict:
+    """Show your saved exclusions (track ids, artists, genres) and the plain-English
+    notes behind them."""
+    return store.load_preferences()
+
+
+@mcp.tool()
+def remove_exclusion(track_ids: list[str] | None = None, artists: list[str] | None = None,
+                     genres: list[str] | None = None) -> dict:
+    """Undo a standing exclusion — start allowing an artist/genre/track again."""
+    prefs = store.remove_exclusion(track_ids=track_ids, artists=artists, genres=genres)
+    return {"updated": True, "excluded_artists": prefs["excluded_artists"],
+            "excluded_genres": prefs["excluded_genres"],
+            "excluded_track_ids": len(prefs["excluded_track_ids"])}
 
 
 @mcp.tool()

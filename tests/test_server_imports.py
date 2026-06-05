@@ -12,6 +12,7 @@ def test_server_exposes_expected_tools():
     expected = {
         "list_moods", "get_library_status", "preview_mix",
         "create_playlist", "refresh_library", "enrich_features",
+        "add_exclusion", "list_preferences", "remove_exclusion",
     }
     missing = {name for name in expected if not hasattr(server, name)}
     assert not missing, f"server missing tools: {missing}"

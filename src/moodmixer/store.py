@@ -85,3 +85,61 @@ def save_library(records: list[dict]) -> int:
         Path(tmp).unlink(missing_ok=True)
         raise
     return len(records)
+
+
+# ── Preferences: persisted "skip from now on" rules ─────────────────
+# Cross-session memory (MCP pillar #1). Artists/genres are stored lowercased so
+# matching is case-insensitive. The LLM resolves fuzzy rules ("Mount Eerie songs
+# about death") to concrete track ids before saving; the note keeps the rule in
+# plain English for transparency.
+
+_PREF_KEYS = ("excluded_track_ids", "excluded_artists", "excluded_genres", "notes")
+
+
+def preferences_path() -> Path:
+    return data_dir() / "preferences.json"
+
+
+def load_preferences() -> dict:
+    p = preferences_path()
+    prefs = json.loads(p.read_text()) if p.exists() else {}
+    for k in _PREF_KEYS:
+        prefs.setdefault(k, [])
+    return prefs
+
+
+def save_preferences(prefs: dict) -> None:
+    preferences_path().write_text(json.dumps(prefs, indent=2, ensure_ascii=False))
+
+
+def _merge_unique(existing: list, additions) -> list:
+    out = list(existing)
+    for a in additions or []:
+        if a not in out:
+            out.append(a)
+    return out
+
+
+def add_exclusion(track_ids=None, artists=None, genres=None, note=None) -> dict:
+    """Persist a standing exclusion. Returns the updated preferences."""
+    prefs = load_preferences()
+    prefs["excluded_track_ids"] = _merge_unique(prefs["excluded_track_ids"], track_ids)
+    prefs["excluded_artists"] = _merge_unique(prefs["excluded_artists"], [a.lower() for a in (artists or [])])
+    prefs["excluded_genres"] = _merge_unique(prefs["excluded_genres"], [g.lower() for g in (genres or [])])
+    if note:
+        prefs["notes"] = _merge_unique(prefs["notes"], [note])
+    save_preferences(prefs)
+    return prefs
+
+
+def remove_exclusion(track_ids=None, artists=None, genres=None) -> dict:
+    """Drop standing exclusions (undo). Returns the updated preferences."""
+    prefs = load_preferences()
+    drop_ids = set(track_ids or [])
+    drop_artists = {a.lower() for a in (artists or [])}
+    drop_genres = {g.lower() for g in (genres or [])}
+    prefs["excluded_track_ids"] = [x for x in prefs["excluded_track_ids"] if x not in drop_ids]
+    prefs["excluded_artists"] = [x for x in prefs["excluded_artists"] if x not in drop_artists]
+    prefs["excluded_genres"] = [x for x in prefs["excluded_genres"] if x not in drop_genres]
+    save_preferences(prefs)
+    return prefs
