@@ -36,7 +36,7 @@ from pathlib import Path
 # experiments never touch the repo.
 USER_AGENT = os.environ.get(
     "MOODMIXER_FEATURES_UA",
-    "mood-mixer/0.1 ( https://github.com/ )",
+    "mood-mixer/0.1 ( https://github.com/illinigirl/mood-mixer )",
 )
 GETSONGBPM_API_KEY = os.environ.get("MOODMIXER_GETSONGBPM_KEY", "")
 

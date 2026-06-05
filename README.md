@@ -138,7 +138,7 @@ Then talk: *"What moods can you make? Preview a workout mix, then save it as
 **As a connector (HTTP):** `mood-mixer --http --port 8765` → add
 `http://localhost:8765/mcp`.
 
-## For reviewers — drive it with Claude Code
+## Try it yourself — drive it with Claude Code
 
 Built to be worked in by an agent. Easiest first:
 
@@ -154,6 +154,19 @@ Built to be worked in by an agent. Easiest first:
 
 `CLAUDE.md` is the orientation file: architecture, the four-part MCP test, design
 decisions, and every deliberate simplification.
+
+## Credits
+
+mood-mixer stands on community data that fills the gap Spotify left:
+
+- **[AcousticBrainz](https://acousticbrainz.org)** + **[MusicBrainz](https://musicbrainz.org)**
+  — community-computed audio features and the recording IDs to look them up.
+- **[GetSongBPM](https://getsongbpm.com)** — community tempo data for tracks
+  AcousticBrainz doesn't cover.
+- Built on the **[Model Context Protocol](https://modelcontextprotocol.io)**;
+  talks to the **[Spotify Web API](https://developer.spotify.com/documentation/web-api)**.
+
+Please respect each source's rate limits and terms of use.
 
 ## License
 
