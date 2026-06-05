@@ -82,6 +82,30 @@ to experiment.
   covers the engine; `test_server_tools.py` drives the tools in-process with
   Spotify monkeypatched; `test_features.py` pins the enrichment math offline.
 
+## Deployment: local (built) vs. claude.ai-hosted (a real lift)
+
+What's built targets **Claude Desktop + the local stdio server**: the user runs
+the server on their own machine, authorizes once (CLI), and enrichment is a local
+background batch. Single-user, one local Spotify token. This is the honest fit
+for the design and for Spotify's self-hosted-only policy.
+
+Serving it to others **through claude.ai** (a remote HTTP connector) is a
+different system, not a config flag:
+
+1. **Multi-tenant auth.** A hosted server needs *each* connected user's Spotify
+   token stored server-side (a per-user OAuth flow + encrypted token storage,
+   like MixCraft / the Magic Monitor AWS MCP). What's here is single-user.
+2. **Spotify's ~25 allowlist cap still applies** — hosting doesn't lift it.
+3. **Enrichment can't run in a tool call.** It's a multi-hour, rate-limited
+   batch; a claude.ai tool call must return in seconds. A hosted path must move
+   enrichment out of the request path — a background worker, or (better) the
+   shared features cache below so there's no per-user enrichment at all.
+
+So a hosted/claude.ai experience needs multi-tenant auth **and** background-or-
+shared-cache enrichment — both real builds, on top of Spotify's hard user cap.
+The shared features cache (deliberate-simplifications #7) is the lever that makes
+the hosted path even plausible.
+
 ## A data-shape assumption to retire before it bites
 
 `load_library` reads the whole library into memory and `build_mix` scans it. Fine
@@ -107,6 +131,17 @@ These are honest limitations and the natural places to extend:
    sources (e.g. a bundled features dataset) as another tier.
 6. **Variety is one-per-artist + dedup.** Add diversity-by-genre or a target
    tempo curve if mixes feel samey.
+7. **Per-user enrichment is the real setup cost — a shared features cache would
+   remove it.** Audio features are *universal* (a song's energy/valence is the
+   same for everyone) and the cache is keyed by the global Spotify track id, so
+   one user's enriched features are valid for every user. Ship a generic
+   features dataset keyed by track id as a "tier 0" lookup (this is exactly what
+   a bundled `spotify-loudness-db`-style CSV is) so most mainstream tracks
+   resolve instantly with no rate-limited enrichment — the biggest "usable by
+   others" win available. **Never ship a personal `track_features.db`:** it
+   holds only public song features, but the *set of track ids in it* reveals the
+   owner's liked songs. A shareable cache must be a generic dataset or an
+   anonymized pool, not anyone's personal one.
 
 ## Things to keep true
 
