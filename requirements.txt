@@ -1,0 +1,5 @@
+# The MCP server needs the MCP SDK (FastMCP lives in `mcp`) and `requests` for
+# the Spotify Web API. The pure mood engine runs on the standard library alone —
+# no install needed to run the pure-engine + feature tests.
+mcp>=1.0
+requests>=2.28

@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Runtime state — your Spotify token, liked-library cache, and the features
+# DB live in the data dir, never in git.
+.mood-mixer/
+spotify-token.json
+library-cache.json
+track_features.db
+*.db-wal
+*.db-shm
+
+# Local env (Spotify client id/secret)
+.env
