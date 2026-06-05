@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from . import features
@@ -143,3 +144,37 @@ def remove_exclusion(track_ids=None, artists=None, genres=None) -> dict:
     prefs["excluded_genres"] = [x for x in prefs["excluded_genres"] if x not in drop_genres]
     save_preferences(prefs)
     return prefs
+
+
+# ── Recent-play history: a cooldown so back-to-back mixes vary ───────
+# Remembers which tracks each playlist used (with a timestamp); a cooldown then
+# excludes recently-used tracks from the next builds, so consecutive playlists
+# don't repeat the same songs. Scoped to what mood-mixer itself put in playlists.
+
+def recent_path() -> Path:
+    return data_dir() / "recent.json"
+
+
+def load_recent() -> list[dict]:
+    p = recent_path()
+    return json.loads(p.read_text()) if p.exists() else []
+
+
+def record_played(track_ids, when: datetime | None = None) -> None:
+    """Remember tracks just put into a playlist. Prunes entries older than 60
+    days so the file stays small. `when` is injectable for tests."""
+    now = when or datetime.now(UTC)
+    recent = load_recent()
+    recent.extend({"id": tid, "ts": now.isoformat()} for tid in track_ids)
+    cutoff = (now - timedelta(days=60)).isoformat()
+    recent = [e for e in recent if e.get("ts", "") >= cutoff]
+    recent_path().write_text(json.dumps(recent))
+
+
+def recent_track_ids(within_hours: float, now: datetime | None = None) -> set[str]:
+    """Track ids played within the cooldown window (empty if cooldown <= 0).
+    Compares ISO-8601 UTC timestamps, which sort chronologically as strings."""
+    if within_hours <= 0:
+        return set()
+    cutoff = ((now or datetime.now(UTC)) - timedelta(hours=within_hours)).isoformat()
+    return {e["id"] for e in load_recent() if e.get("ts", "") >= cutoff}

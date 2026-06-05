@@ -123,3 +123,30 @@ def test_saved_genre_exclusion_applies(srv):
     srv.add_exclusion(genres=["indie folk"], note="no lullabies-adjacent folk")
     res = srv.preview_mix("chill", limit=20)
     assert all(t["artist"] != "Cedar and Salt" for t in res["tracks"])  # the indie-folk track
+
+
+def test_recent_cooldown_window(tmp_path, monkeypatch):
+    import datetime as dt
+
+    monkeypatch.setenv("MOODMIXER_DATA_DIR", str(tmp_path))
+    from moodmixer import store
+
+    t0 = dt.datetime(2026, 6, 5, tzinfo=dt.UTC)
+    store.record_played(["a", "b"], when=t0)
+    assert store.recent_track_ids(24, now=t0 + dt.timedelta(hours=1)) == {"a", "b"}
+    assert store.recent_track_ids(24, now=t0 + dt.timedelta(hours=48)) == set()
+    assert store.recent_track_ids(0, now=t0) == set()        # cooldown off
+
+
+def test_cooldown_varies_back_to_back(srv, monkeypatch):
+    monkeypatch.setattr(
+        "moodmixer.spotify.create_playlist",
+        lambda name, uris, description="", public=False:
+        {"playlist_id": "p", "playlist_url": "u", "track_count": len(uris)},
+    )
+    # First playlist uses the 3 strict workout tracks and remembers them.
+    assert srv.create_playlist("workout", limit=3)["track_count"] == 3
+    # Next build (cooldown on) skips those just-used tracks → none of the strict 3 remain.
+    assert srv.preview_mix("workout", limit=10)["strict_matches"] == 0
+    # Turning the cooldown off brings them back.
+    assert srv.preview_mix("workout", limit=10, cooldown_days=0)["strict_matches"] == 3

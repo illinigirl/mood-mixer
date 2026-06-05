@@ -62,8 +62,15 @@ def _saved_excludes():
             {g.lower() for g in p["excluded_genres"]})
 
 
-def cmd_preview(args):
+def _excludes_with_cooldown(cooldown_days):
     ids, artists, genres = _saved_excludes()
+    if cooldown_days and cooldown_days > 0:
+        ids |= store.recent_track_ids(cooldown_days * 24)
+    return ids, artists, genres
+
+
+def cmd_preview(args):
+    ids, artists, genres = _excludes_with_cooldown(args.cooldown_days)
     mix = moods.build_mix(store.load_library(), args.mood, limit=args.limit, shuffle_seed=args.seed,
                           exclude_track_ids=ids, exclude_artists=artists, exclude_genres=genres)
     print(f"{len(mix)} tracks for '{args.mood}':\n")
@@ -72,17 +79,18 @@ def cmd_preview(args):
 
 
 def cmd_create(args):
-    ids, artists, genres = _saved_excludes()
+    ids, artists, genres = _excludes_with_cooldown(args.cooldown_days)
     mix = moods.build_mix(store.load_library(), args.mood, limit=args.limit, shuffle_seed=args.seed,
                           exclude_track_ids=ids, exclude_artists=artists, exclude_genres=genres)
     if not mix:
-        print(f"No tracks available for '{args.mood}' (after exclusions).")
+        print(f"No tracks available for '{args.mood}' (after exclusions/cooldown).")
         return
     label = moods.MOOD_PRESETS[args.mood]["label"]
     result = spotify.create_playlist(
         args.name or f"{label} (mood-mixer)", [t.uri for t in mix],
         description=f"Built by mood-mixer — mood: {label}.",
     )
+    store.record_played([t.id for t in mix])
     print(f"Created '{args.name or label}' ({result['track_count']} tracks): {result['playlist_url']}")
 
 
@@ -119,6 +127,8 @@ def build_parser() -> argparse.ArgumentParser:
     pp.add_argument("mood")
     pp.add_argument("--limit", type=int, default=30)
     pp.add_argument("--seed", type=int, default=None)
+    pp.add_argument("--cooldown-days", type=float, default=7, dest="cooldown_days",
+                    help="skip tracks used in the last N days (0 = off)")
     pp.set_defaults(func=cmd_preview)
 
     pc = sub.add_parser("create", help="create a real Spotify playlist")
@@ -126,6 +136,8 @@ def build_parser() -> argparse.ArgumentParser:
     pc.add_argument("--name", default=None)
     pc.add_argument("--limit", type=int, default=30)
     pc.add_argument("--seed", type=int, default=None)
+    pc.add_argument("--cooldown-days", type=float, default=7, dest="cooldown_days",
+                    help="skip tracks used in the last N days (0 = off)")
     pc.set_defaults(func=cmd_create)
 
     px = sub.add_parser("exclude", help="save a 'skip from now on' rule")

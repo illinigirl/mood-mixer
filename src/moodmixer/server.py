@@ -61,11 +61,14 @@ def get_library_status() -> dict:
 
 
 def _effective_excludes(exclude_track_ids, exclude_artists, exclude_genres,
-                        allow_artists, allow_genres):
-    """Merge saved preferences with this call's ad-hoc excludes, then drop any the
-    caller explicitly allows this time (the "...unless I ask" override)."""
+                        allow_artists, allow_genres, cooldown_days=0.0):
+    """Merge saved preferences + a recent-play cooldown + this call's ad-hoc
+    excludes, then drop any the caller explicitly allows this time (the "...unless
+    I ask" override)."""
     prefs = store.load_preferences()
     ids = set(prefs["excluded_track_ids"]) | set(exclude_track_ids or [])
+    if cooldown_days and cooldown_days > 0:
+        ids |= store.recent_track_ids(cooldown_days * 24)
     artists = {a.lower() for a in prefs["excluded_artists"]} | {a.lower() for a in (exclude_artists or [])}
     genres = {g.lower() for g in prefs["excluded_genres"]} | {g.lower() for g in (exclude_genres or [])}
     artists -= {a.lower() for a in (allow_artists or [])}
@@ -94,20 +97,22 @@ def _mix(preset, limit, shuffle_seed, ex_ids, ex_artists, ex_genres):
 def preview_mix(preset: str, limit: int = 30, exclude_artists: list[str] | None = None,
                 exclude_genres: list[str] | None = None, exclude_track_ids: list[str] | None = None,
                 allow_artists: list[str] | None = None, allow_genres: list[str] | None = None,
-                shuffle_seed: int | None = None) -> dict:
+                cooldown_days: float = 7, shuffle_seed: int | None = None) -> dict:
     """Show the tracks a mood would select from your library — WITHOUT creating a
     playlist (the grounding step). Tracks are ranked by FIT, so you always get a
     full list (the closest N), not just exact matches; `strict_matches` reports how
     many fully fit, `selected` how many were returned.
 
-    Honors your saved exclusions (add_exclusion). Use `exclude_artists/genres/
-    track_ids` to drop more just this time, or `allow_artists/genres` to override a
-    saved rule for this one request (e.g. lullabies are off by default — include
-    them now). `preset` is one of list_moods."""
+    Honors your saved exclusions (add_exclusion) and a recent-play `cooldown_days`
+    (default 7 → skip tracks used in playlists in the last week, so back-to-back
+    mixes vary; set 0 to ignore). Use `exclude_artists/genres/track_ids` to drop
+    more just this time, or `allow_artists/genres` to override a saved rule for this
+    one request (e.g. lullabies are off by default — include them now). `preset` is
+    one of list_moods."""
     if preset not in moods.MOOD_PRESETS:
         return {"error": f"unknown mood {preset!r}", "known": list(moods.MOOD_PRESETS)}
-    ids, artists, genres = _effective_excludes(exclude_track_ids, exclude_artists,
-                                               exclude_genres, allow_artists, allow_genres)
+    ids, artists, genres = _effective_excludes(exclude_track_ids, exclude_artists, exclude_genres,
+                                               allow_artists, allow_genres, cooldown_days)
     mix, strict = _mix(preset, limit, shuffle_seed, ids, artists, genres)
     return {
         "mood": preset,
@@ -122,37 +127,43 @@ def preview_mix(preset: str, limit: int = 30, exclude_artists: list[str] | None 
 def create_playlist(preset: str, name: str | None = None, limit: int = 30,
                     exclude_artists: list[str] | None = None, exclude_genres: list[str] | None = None,
                     exclude_track_ids: list[str] | None = None, allow_artists: list[str] | None = None,
-                    allow_genres: list[str] | None = None, shuffle_seed: int | None = None,
-                    replace_playlist_id: str | None = None) -> dict:
+                    allow_genres: list[str] | None = None, cooldown_days: float = 7,
+                    shuffle_seed: int | None = None, replace_playlist_id: str | None = None) -> dict:
     """Build the mood mix AND save it as a real (private) Spotify playlist — the
-    payoff (the side effect plain Claude can't do). Honors saved exclusions;
-    `exclude_*` adds more, `allow_*` overrides a saved rule for this request. Pass
-    `replace_playlist_id` to REBUILD an existing playlist in place (keeps its name
-    + URL, swaps the tracks) instead of creating a new one. Needs Spotify
-    authorization (run `mood-mixer authorize` once). Returns the URL."""
+    payoff (the side effect plain Claude can't do). Optionally pass `name` for the
+    playlist's title (defaults to the mood label). Honors saved exclusions and a
+    recent-play `cooldown_days` (default 7, so back-to-back playlists don't repeat
+    tracks; 0 to ignore); `exclude_*` adds more, `allow_*` overrides a saved rule
+    for this request. Pass `replace_playlist_id` to REBUILD an existing playlist in
+    place (keeps its name + URL, swaps the tracks). The tracks used are remembered
+    to feed the cooldown. Needs Spotify authorization (run `mood-mixer authorize`
+    once). Returns the URL."""
     if preset not in moods.MOOD_PRESETS:
         return {"error": f"unknown mood {preset!r}", "known": list(moods.MOOD_PRESETS)}
-    ids, artists, genres = _effective_excludes(exclude_track_ids, exclude_artists,
-                                               exclude_genres, allow_artists, allow_genres)
+    ids, artists, genres = _effective_excludes(exclude_track_ids, exclude_artists, exclude_genres,
+                                               allow_artists, allow_genres, cooldown_days)
     mix, _ = _mix(preset, limit, shuffle_seed, ids, artists, genres)
     if not mix:
-        return {"error": f"no tracks available for '{preset}' after exclusions — loosen filters "
-                         "or run refresh_library / enrich_features to improve coverage"}
+        return {"error": f"no tracks available for '{preset}' after exclusions/cooldown — loosen "
+                         "filters, lower cooldown_days, or run enrich_features for more coverage"}
     label = moods.MOOD_PRESETS[preset]["label"]
     playlist_name = name or f"{label} (mood-mixer)"
     uris = [t.uri for t in mix]
     try:
         if replace_playlist_id:
             result = spotify.replace_playlist_tracks(replace_playlist_id, uris)
-            url = f"https://open.spotify.com/playlist/{replace_playlist_id}"
-            return {"updated": True, "mood": preset, "playlist_url": url, **result}
-        result = spotify.create_playlist(
-            playlist_name, uris,
-            description=f"Built by mood-mixer from your liked library — mood: {label}.",
-        )
+            out = {"updated": True, "mood": preset,
+                   "playlist_url": f"https://open.spotify.com/playlist/{replace_playlist_id}", **result}
+        else:
+            result = spotify.create_playlist(
+                playlist_name, uris,
+                description=f"Built by mood-mixer from your liked library — mood: {label}.",
+            )
+            out = {"created": True, "mood": preset, "name": playlist_name, **result}
     except (RuntimeError, ValueError) as e:
         return {"error": str(e)}
-    return {"created": True, "mood": preset, "name": playlist_name, **result}
+    store.record_played([t.id for t in mix])   # remember for the cooldown
+    return out
 
 
 @mcp.tool()

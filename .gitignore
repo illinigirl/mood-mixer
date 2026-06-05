@@ -11,6 +11,8 @@ __pycache__/
 .mood-mixer/
 spotify-token.json
 library-cache.json
+preferences.json
+recent.json
 track_features.db
 *.db-wal
 *.db-shm
