@@ -17,6 +17,18 @@ PYTHONPATH=src python -m moodmixer.cli moods
 PYTHONPATH=src python -m moodmixer.cli preview workout  # runs on the bundled sample
 ```
 
+## In Claude Desktop
+
+Connected as an MCP server, Claude takes a plain-language ask end-to-end — it
+finds the tools, previews the mix against your library, then creates the real
+Spotify playlist:
+
+![Claude picking up the mood-mixer tools and choosing create_playlist for a "Swim Party" pool-party request](docs/claude-1-tools.jpeg)
+
+![Listing the mood presets and previewing the "party" mix — 221 matching tracks found in the library](docs/claude-2-preview.jpeg)
+
+![Done — "Swim Party" is live on Spotify (30 tracks), with Claude explaining the picks and offering to refine](docs/claude-3-done.jpeg)
+
 ## Why an MCP (and not just asking Claude)?
 
 A tool only earns its place if it does something the model *can't*. This clears
