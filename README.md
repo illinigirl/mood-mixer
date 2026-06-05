@@ -12,7 +12,7 @@ GetSongBPM), caches it, and matches your library against tunable mood presets
 with exact, deterministic math.
 
 ```bash
-pip install -e ".[test]" && python -m pytest -q        # 27 tests, no network
+pip install -e ".[test]" && python -m pytest -q        # 35 tests, no network
 PYTHONPATH=src python -m moodmixer.cli moods
 PYTHONPATH=src python -m moodmixer.cli preview workout  # runs on the bundled sample
 ```
@@ -58,6 +58,10 @@ data, the missing audio features, the exact matching, and the playlist.
   (rate-limited; run in batches). This is what makes matching accurate rather
   than genre-estimated.
 - **`get_library_status`** — track count, source, and feature coverage.
+- **`add_exclusion` / `remove_exclusion` / `list_preferences`** — standing
+  "skip this from now on" rules (by track, artist, or genre, each with a note),
+  and the saved preferences behind them. The cross-session memory that makes the
+  mixes feel personal over time.
 
 ## How "mood" survives the deprecation
 
@@ -115,12 +119,12 @@ never lands in a commit.
 3. **Authorize once** (opens a browser):
    ```bash
    pip install -e .
-   moodmixer authorize       # or: PYTHONPATH=src python -m moodmixer.cli authorize
+   python -m moodmixer.cli authorize     # opens a browser to authorize Spotify
    ```
 4. **Pull your library + features:**
    ```bash
-   moodmixer refresh
-   moodmixer enrich --limit 200     # repeat until coverage is good (slow, rate-limited)
+   python -m moodmixer.cli refresh
+   python -m moodmixer.cli enrich --limit 200   # repeat until coverage is good (slow, rate-limited)
    ```
 
 ## Use it from Claude
@@ -154,7 +158,7 @@ Then talk: *"What moods can you make? Preview a workout mix, then save it as
 
 Built to be worked in by an agent. Easiest first:
 
-1. **Run the tests** — `pip install -e ".[test]" && python -m pytest -q` (27,
+1. **Run the tests** — `pip install -e ".[test]" && python -m pytest -q` (35,
    no network — Spotify and the feature APIs are stubbed).
 2. **Preview on the sample** — `PYTHONPATH=src python -m moodmixer.cli preview chill`
    (works with zero credentials).

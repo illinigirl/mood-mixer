@@ -15,7 +15,7 @@ Tool surface (v1):
 
 Dual transport: stdio by default (Claude Desktop), or streamable-HTTP via
 --http / MOOD_MIXER_HTTP=1. Auth (a one-time browser flow) is a CLI step, not a
-tool — see `mood-mixer authorize`.
+tool — see `python -m moodmixer.cli authorize`.
 """
 
 from __future__ import annotations
@@ -136,8 +136,8 @@ def create_playlist(preset: str, name: str | None = None, limit: int = 30,
     tracks; 0 to ignore); `exclude_*` adds more, `allow_*` overrides a saved rule
     for this request. Pass `replace_playlist_id` to REBUILD an existing playlist in
     place (keeps its name + URL, swaps the tracks). The tracks used are remembered
-    to feed the cooldown. Needs Spotify authorization (run `mood-mixer authorize`
-    once). Returns the URL."""
+    to feed the cooldown. Needs Spotify authorization (run
+    `python -m moodmixer.cli authorize` once). Returns the URL."""
     if preset not in moods.MOOD_PRESETS:
         return {"error": f"unknown mood {preset!r}", "known": list(moods.MOOD_PRESETS)}
     ids, artists, genres = _effective_excludes(exclude_track_ids, exclude_artists, exclude_genres,
