@@ -253,6 +253,26 @@ def create_playlist(name: str, uris: list[str], description: str = "", public: b
     }
 
 
+def update_playlist_details(playlist_id: str, name: str | None = None,
+                            description: str | None = None) -> None:
+    """Change an existing playlist's name and/or description (the change-details
+    endpoint). No-op if neither is given."""
+    body: dict = {}
+    if name:
+        body["name"] = name[:100]
+    if description is not None:
+        body["description"] = description[:300]
+    if not body:
+        return
+    token = get_access_token()
+    if not token:
+        raise RuntimeError("Not authorized — run `mood-mixer authorize` first.")
+    resp = requests.put(f"{API}/playlists/{playlist_id}",
+                        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                        json=body, timeout=15)
+    resp.raise_for_status()
+
+
 def replace_playlist_tracks(playlist_id: str, uris: list[str]) -> dict:
     """Replace ALL tracks in an existing playlist (rebuild in place — keeps its
     name/URL, swaps the contents). PUT replaces with the first 100, then POST

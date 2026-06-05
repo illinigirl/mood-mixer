@@ -152,8 +152,16 @@ def create_playlist(preset: str, name: str | None = None, limit: int = 30,
     try:
         if replace_playlist_id:
             result = spotify.replace_playlist_tracks(replace_playlist_id, uris)
-            out = {"updated": True, "mood": preset,
+            # Only rename when a name is explicitly given — never clobber the
+            # existing title on a plain rebuild.
+            if name:
+                spotify.update_playlist_details(
+                    replace_playlist_id, name=name,
+                    description=f"Built by mood-mixer from your liked library — mood: {label}.")
+            out = {"updated": True, "mood": preset, "renamed": bool(name),
                    "playlist_url": f"https://open.spotify.com/playlist/{replace_playlist_id}", **result}
+            if name:
+                out["name"] = name
         else:
             result = spotify.create_playlist(
                 playlist_name, uris,

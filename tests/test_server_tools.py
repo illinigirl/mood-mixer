@@ -72,19 +72,34 @@ def test_create_playlist_unauthorized_errors(srv):
     assert "error" in res and "authorize" in res["error"].lower()
 
 
-def test_rebuild_replaces_in_place(srv, monkeypatch):
-    seen = {}
+@pytest.fixture
+def fake_replace(monkeypatch):
+    calls = {"replace": None, "details": None}
 
-    def fake_replace(playlist_id, uris):
-        seen["id"] = playlist_id
-        seen["uris"] = uris
+    def replace(playlist_id, uris):
+        calls["replace"] = (playlist_id, uris)
         return {"playlist_id": playlist_id, "track_count": len(uris)}
 
-    monkeypatch.setattr("moodmixer.spotify.replace_playlist_tracks", fake_replace)
+    def details(playlist_id, name=None, description=None):
+        calls["details"] = (playlist_id, name)
+
+    monkeypatch.setattr("moodmixer.spotify.replace_playlist_tracks", replace)
+    monkeypatch.setattr("moodmixer.spotify.update_playlist_details", details)
+    return calls
+
+
+def test_rebuild_replaces_in_place_without_renaming(srv, fake_replace):
     res = srv.create_playlist("workout", limit=3, replace_playlist_id="plX")
-    assert res["updated"] is True
+    assert res["updated"] is True and res["renamed"] is False
     assert res["playlist_url"].endswith("plX")
-    assert seen["id"] == "plX" and len(seen["uris"]) == 3
+    assert fake_replace["replace"][0] == "plX" and len(fake_replace["replace"][1]) == 3
+    assert fake_replace["details"] is None          # plain rebuild must NOT rename
+
+
+def test_rebuild_with_name_renames(srv, fake_replace):
+    res = srv.create_playlist("workout", name="Sweat", limit=3, replace_playlist_id="plX")
+    assert res["renamed"] is True and res["name"] == "Sweat"
+    assert fake_replace["details"] == ("plX", "Sweat")   # rename was applied
 
 
 def test_refresh_library_caches_then_status_flips(srv, monkeypatch):
