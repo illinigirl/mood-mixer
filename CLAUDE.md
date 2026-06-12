@@ -106,6 +106,35 @@ shared-cache enrichment — both real builds, on top of Spotify's hard user cap.
 The shared features cache (deliberate-simplifications #7) is the lever that makes
 the hosted path even plausible.
 
+## Test coverage standing orders
+
+Agent-written coverage has a predictable fingerprint: pure cores near 100%,
+the same gaps everywhere else. Before calling any feature done, check every
+dimension — each is the negative space agents skip by default:
+
+- **Empty / degenerate:** the zero-state case is tested (empty library,
+  no enriched features, fresh prefs).
+- **Boundary:** limits tested *at* the boundary (playlist of exactly 100
+  URIs — the chunking edge; name/description truncation lengths).
+- **Error paths:** every defensive branch executes in at least one test —
+  and failure *semantics* matter here: a transient enrichment error must
+  not be recorded as a permanent miss (404 = real miss; 503/network =
+  retry later). If the code handles it, a test proves it.
+- **Scale:** at least one fixture past the first page/chunk — the
+  production library is ~112 pages of liked tracks and the sample is 12;
+  the cache+features hydration join must be exercised by a test, not
+  only by production.
+- **Time:** keep the clock-injection pattern (`when=`, `now=`) — no
+  direct clock reads in logic under test.
+- **Adapters:** the CLI gets smoke tests, and anything that builds a
+  Spotify request gets a wire-level test (requests-mock) asserting what
+  is actually sent — function-boundary mocks don't protect chunking or
+  truncation.
+- **Tests must be able to fail:** no assertions that survive deleting the
+  behavior; if a test has never been red, prove it can be.
+
+Run `/coverage-audit` before calling a surface ship-ready.
+
 ## A data-shape assumption to retire before it bites
 
 `load_library` reads the whole library into memory and `build_mix` scans it. Fine
